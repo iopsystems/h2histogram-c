@@ -6,7 +6,7 @@
 struct h2_hist {
     h2_config config;
     h2_phase phase;
-    size_t length;
+    size_t length, capacity;
     uint64_t *counts;
     uint32_t *indices;
 };
@@ -110,6 +110,7 @@ static h2_status allocate(h2_config c, h2_phase p, size_t n, h2_hist **out) {
     h->config = c;
     h->phase = p;
     h->length = n;
+    h->capacity = n;
     if (n) {
         h->counts = calloc(n, sizeof *h->counts);
         if (p != H2_DENSE)
@@ -528,6 +529,37 @@ h2_status h2_downsample(const h2_hist *src, uint32_t gp, h2_hist **out) {
         }
     }
     *out = h;
+    return H2_OK;
+}
+
+h2_status h2_compact(h2_hist *h) {
+    if (!h)
+        return H2_INVALID;
+    if (h->phase == H2_DENSE || h->length == h->capacity)
+        return H2_OK;
+
+    uint64_t *counts = NULL;
+    uint32_t *indices = NULL;
+    if (h->length) {
+        /* Capacity was checked on allocation; length never exceeds it. Keep
+         * both borrowed arrays alive until both replacements are ready. */
+        counts = malloc(h->length * sizeof *counts);
+        if (!counts)
+            return H2_NOMEM;
+        indices = malloc(h->length * sizeof *indices);
+        if (!indices) {
+            free(counts);
+            return H2_NOMEM;
+        }
+        memcpy(counts, h->counts, h->length * sizeof *counts);
+        memcpy(indices, h->indices, h->length * sizeof *indices);
+    }
+
+    free(h->counts);
+    free(h->indices);
+    h->counts = counts;
+    h->indices = indices;
+    h->capacity = h->length;
     return H2_OK;
 }
 

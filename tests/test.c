@@ -239,7 +239,106 @@ static void invalid_and_transactional(void) {
     h2_free(mismatch);
 }
 
+/* Interleaving, overlap and either exhausted input must preserve every bucket. */
+static void merge_edges(void) {
+    h2_config c;
+    OK(h2_config_init(&c, 2, 8));
+    const uint64_t values[][4] = {{1, 3, 5, 7}, {0, 2, 4, 6}, {3, 5, 8, 9}};
+    for (unsigned scenario = 0; scenario < 5; scenario++) {
+        h2_hist *a = NULL, *b = NULL, *oracle = NULL;
+        OK(h2_create(c, &a));
+        OK(h2_create(c, &b));
+        if (scenario != 3 && scenario != 4)
+            for (unsigned i = 0; i < 4; i++)
+                OK(h2_record(a, values[0][i], i + 1));
+        if (scenario != 2 && scenario != 4)
+            for (unsigned i = 0; i < 4; i++)
+                OK(h2_record(b, values[scenario == 1 ? 2 : 1][i], 2 * i + 1));
+        const h2_hist *inputs[] = {a, b};
+        OK(h2_sum(inputs, 2, &oracle));
+        for (h2_phase phase = H2_SPARSE; phase <= H2_CUMULATIVE; phase++) {
+            h2_hist *ap = NULL, *bp = NULL;
+            OK(h2_convert(a, phase, &ap));
+            OK(h2_convert(b, phase, &bp));
+            for (unsigned reverse = 0; reverse < 2; reverse++) {
+                h2_hist *merged = NULL, *dense = NULL;
+                OK(h2_merge(reverse ? bp : ap, reverse ? ap : bp, &merged));
+                OK(h2_convert(merged, H2_DENSE, &dense));
+                assert(memcmp(h2_counts(dense), h2_counts(oracle), c.buckets * sizeof(uint64_t)) ==
+                       0);
+                h2_free(dense);
+                h2_free(merged);
+            }
+            h2_free(ap);
+            h2_free(bp);
+        }
+        h2_free(a);
+        h2_free(b);
+        h2_free(oracle);
+    }
+}
+
+static void empty_reports(void) {
+    h2_config c;
+    OK(h2_config_init(&c, 2, 8));
+    h2_hist *h = NULL;
+    OK(h2_create(c, &h));
+    for (h2_phase phase = H2_DENSE; phase <= H2_CUMULATIVE; phase++) {
+        h2_hist *empty = NULL;
+        OK(h2_convert(h, phase, &empty));
+        double ps[] = {0, .5, 1};
+        h2_bucket sentinels[] = {{11, 12, 13}, {21, 22, 23}, {31, 32, 33}};
+        h2_bucket buckets[3];
+        memcpy(buckets, sentinels, sizeof buckets);
+        assert(h2_percentiles(empty, ps, 3, buckets) == H2_EMPTY);
+        assert(memcmp(buckets, sentinels, sizeof buckets) == 0);
+        assert(h2_percentile(empty, .5, buckets) == H2_EMPTY);
+        assert(memcmp(buckets, sentinels, sizeof buckets) == 0);
+        double mean = 77;
+        assert(h2_mean(empty, &mean) == H2_EMPTY && mean == 77);
+        OK(h2_percentiles(empty, NULL, 0, NULL));
+        h2_free(empty);
+    }
+    h2_free(h);
+}
+
+static void compact_conservation(void) {
+    h2_config c;
+    OK(h2_config_init(&c, 2, 8));
+    uint32_t indices[] = {8, 9, 10};
+    uint64_t counts[] = {2, 3, 5};
+    h2_hist *s = NULL;
+    OK(h2_import(c, H2_SPARSE, indices, counts, 3, &s));
+    for (h2_phase phase = H2_SPARSE; phase <= H2_CUMULATIVE; phase++) {
+        h2_hist *p = NULL, *merged = NULL, *down = NULL;
+        OK(h2_convert(s, phase, &p));
+        OK(h2_merge(p, p, &merged));
+        OK(h2_downsample(p, 0, &down));
+        h2_hist *cases[] = {merged, down};
+        for (unsigned i = 0; i < 2; i++) {
+            h2_hist *before = NULL, *after = NULL;
+            OK(h2_convert(cases[i], H2_DENSE, &before));
+            size_t length = h2_length(cases[i]);
+            OK(h2_compact(cases[i]));
+            assert(h2_get_phase(cases[i]) == phase && h2_length(cases[i]) == length);
+            OK(h2_convert(cases[i], H2_DENSE, &after));
+            assert(memcmp(h2_counts(before), h2_counts(after),
+                          h2_length(before) * sizeof(uint64_t)) == 0);
+            h2_free(before);
+            h2_free(after);
+        }
+        h2_free(p);
+        h2_free(merged);
+        h2_free(down);
+    }
+    assert(h2_compact(NULL) == H2_INVALID);
+    h2_free(s);
+}
+
 int main(void) {
+    empty_reports();
+    merge_edges();
+    compact_conservation();
     phase_conservation();
     invalid_and_transactional();
     decimal_percentiles();

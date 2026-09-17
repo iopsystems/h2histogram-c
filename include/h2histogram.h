@@ -37,6 +37,9 @@ h2_status h2_create(h2_config c, h2_hist **out);
 h2_status h2_import(h2_config c, h2_phase phase, const uint32_t *indices, const uint64_t *counts,
                     size_t length, h2_hist **out);
 void h2_free(h2_hist *h);
+/* NULL accessors return an all-zero config, H2_DENSE, length 0, and NULL
+ * arrays respectively. H2_DENSE from get_phase does not validate a pointer.
+ * Arrays are borrowed until free or a storage-replacing compact succeeds. */
 h2_config h2_get_config(const h2_hist *h);
 h2_phase h2_get_phase(const h2_hist *h);
 size_t h2_length(const h2_hist *h);
@@ -56,12 +59,25 @@ h2_status h2_sum(const h2_hist *const *inputs, size_t length, h2_hist **out);
 h2_status h2_convert(const h2_hist *src, h2_phase phase, h2_hist **out);
 h2_status h2_merge(const h2_hist *a, const h2_hist *b, h2_hist **out);
 h2_status h2_downsample(const h2_hist *src, uint32_t gp, h2_hist **out);
+/* Opt-in release of spare sparse/cumulative transform capacity. Dense and
+ * exact-capacity objects are allocation-free no-ops preserving borrowed views.
+ * Otherwise copies O(length) entries into exact-sized arrays and frees the old
+ * arrays, invalidating their borrowed views on success. Empty storage is freed
+ * without allocation. May temporarily hold both old and new arrays. H2_NOMEM
+ * preserves the object and all borrowed views; NULL returns H2_INVALID.
+ * Allocator time is additional to copying; external synchronization required. */
+h2_status h2_compact(h2_hist *h);
 /* Reports allocate nothing. Batch output holds length entries, preserves order
  * and duplicates. Dense/sparse use O(length * stored buckets) scans; cumulative
  * uses binary search. Empty nonzero requests return H2_EMPTY; no writes occur.
  * Totals exceeding UINT64_MAX return H2_OVERFLOW. Percentiles are finite [0,1],
  * nearest rank using ceil(p * (double)total), with exact p0/p1 endpoints.
- * Mean uses floating-point weighted inclusive bucket midpoints. */
+ * h2_bucket is a plain value without an absent state: check H2_EMPTY before
+ * reading reused outputs; scalar/batch percentile and mean outputs remain
+ * unchanged on empty input. This status idiom is intentional for C.
+ * Mean approximates weighted inclusive bucket midpoints using long double
+ * intermediates and a double result. Precision varies by platform; bit-for-bit
+ * mean parity across platforms or with other ports is not promised. */
 h2_status h2_total(const h2_hist *h, uint64_t *out);
 h2_status h2_percentile(const h2_hist *h, double p, h2_bucket *out);
 h2_status h2_percentiles(const h2_hist *h, const double *ps, size_t length, h2_bucket *out);

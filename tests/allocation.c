@@ -6,13 +6,15 @@
 void *__real_malloc(size_t);
 void *__real_calloc(size_t, size_t);
 void __real_free(void *);
-static size_t calls, live, fail_at;
+static size_t calls, live, fail_at, allocated_bytes;
 void *__wrap_malloc(size_t n) {
     if (++calls == fail_at)
         return NULL;
     void *p = __real_malloc(n);
-    if (p)
+    if (p) {
         live++;
+        allocated_bytes += n;
+    }
     return p;
 }
 
@@ -54,6 +56,56 @@ static h2_status operation(unsigned op, h2_config c, const h2_hist *h, const h2_
     }
 }
 
+static void compact_allocations(h2_hist *dense, h2_hist *sparse, h2_hist *cumulative) {
+    h2_hist *phases[] = {dense, sparse, cumulative};
+    for (unsigned i = 0; i < 3; i++) {
+        const uint64_t *counts = h2_counts(phases[i]);
+        const uint32_t *indices = h2_indices(phases[i]);
+        calls = 0;
+        fail_at = 1;
+        assert(h2_compact(phases[i]) == H2_OK);
+        assert(calls == 0);
+        assert(h2_counts(phases[i]) == counts && h2_indices(phases[i]) == indices);
+        fail_at = 0;
+    }
+    for (unsigned i = 1; i < 3; i++) {
+        h2_hist *merged = NULL;
+        assert(h2_merge(phases[i], phases[i], &merged) == H2_OK);
+        const uint64_t *counts = h2_counts(merged);
+        const uint32_t *indices = h2_indices(merged);
+        size_t baseline = live;
+        for (size_t failure = 1; failure <= 2; failure++) {
+            calls = 0;
+            fail_at = failure;
+            assert(h2_compact(merged) == H2_NOMEM);
+            assert(live == baseline);
+            assert(h2_counts(merged) == counts && h2_indices(merged) == indices);
+            assert(counts[0] == 10 && indices[0] == 5 && h2_length(merged) == 1);
+        }
+        calls = 0;
+        allocated_bytes = 0;
+        fail_at = 0;
+        assert(h2_compact(merged) == H2_OK);
+        assert(live == baseline && calls == 2);
+        assert(allocated_bytes == h2_length(merged) * (sizeof(uint64_t) + sizeof(uint32_t)));
+        assert(h2_counts(merged)[0] == 10 && h2_indices(merged)[0] == 5);
+        calls = 0;
+        fail_at = 1;
+        assert(h2_compact(merged) == H2_OK && calls == 0);
+        fail_at = 0;
+        h2_free(merged);
+        h2_hist *empty = NULL;
+        assert(h2_import(h2_get_config(phases[i]), h2_get_phase(phases[i]), NULL, NULL, 0,
+                         &empty) == H2_OK);
+        calls = 0;
+        fail_at = 1;
+        assert(h2_compact(empty) == H2_OK && calls == 0);
+        assert(h2_length(empty) == 0 && h2_counts(empty) == NULL && h2_indices(empty) == NULL);
+        fail_at = 0;
+        h2_free(empty);
+    }
+}
+
 int main(void) {
     h2_config c;
     assert(h2_config_init(&c, 2, 8) == H2_OK);
@@ -63,6 +115,7 @@ int main(void) {
     assert(h2_record(h, 5, 5) == H2_OK);
     assert(h2_convert(h, H2_SPARSE, &s) == H2_OK);
     assert(h2_convert(h, H2_CUMULATIVE, &u) == H2_OK);
+    compact_allocations(h, s, u);
     size_t baseline = live;
     for (unsigned op = 0; op < 6; op++)
         for (size_t failure = 1; failure <= 4; failure++) {

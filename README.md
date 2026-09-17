@@ -31,6 +31,14 @@ where available and a portable C11 fallback elsewhere.
 | `H2_CUMULATIVE` | Repeated percentile reports | 12 bytes per stored entry | binary search |
 
 These sizes exclude the object, allocator overhead and spare transform capacity.
+Sparse/cumulative merge reserves the sum of input lengths; downsampling
+reserves the source length. Overlap/coalescing can leave spare storage. Call
+`h2_compact` explicitly to release that spare capacity. It copies O(K) entries,
+adds allocator work, and temporarily holds both old and replacement arrays.
+Dense and already exact-sized objects are allocation-free no-ops. Successful
+storage replacement invalidates borrowed arrays; allocation failure preserves
+the object and its views. Empty compaction releases any retained arrays.
+
 Mean currently scans the stored entries in every phase. Cumulative mean uses
 individual count differences and the current geometry's inclusive midpoints.
 Sparse/cumulative conversion, merge, downsampling and decumulation operate on
@@ -59,9 +67,10 @@ not original exact observations, describe values within a logarithmic bucket.
 Objects are opaque owners. Every constructor/transform takes an output pointer
 that must initially be NULL and returns independent owned storage. Free each
 object once with `h2_free` (NULL is accepted). Configs are values; accessor arrays
-are borrowed read-only views, valid until their owner is freed. Dense views can
-change after mutation. Never free or modify borrowed arrays. Copying an object
-pointer does not create another owner. Import functions copy their input arrays.
+are borrowed read-only views, valid until their owner is freed or a
+storage-replacing `h2_compact` succeeds. Dense views can change after mutation.
+Never free or modify borrowed arrays. Copying an object pointer does not create
+another owner. Import functions copy their input arrays.
 
 Functions return `h2_status`; errors leave caller outputs and existing objects
 unchanged. Provide valid pointers and output arrays of the documented length;
@@ -89,7 +98,10 @@ queries validate every request before writing, preserve order and duplicates,
 and require room for the full result. Dense/sparse batches scan independently
 per request (O(P*B) and O(P*K)); cumulative batches cost O(P*log K). No scratch
 sorting or hidden allocation is used. Empty nonzero percentile requests and
-mean return `H2_EMPTY`; an empty batch succeeds without writing output.
+mean return `H2_EMPTY` without changing outputs; an empty batch succeeds without
+writing output. C buckets have no absent state, so check the returned status
+before reading reused output buffers. This C contract deliberately uses a
+status instead of the Rust/Zig optional-bucket result.
 
 ## Limits and numerical behavior
 
@@ -102,7 +114,10 @@ Totals, cumulative prefixes and reports are limited to `UINT64_MAX`, even when
 individual counters are valid. Reports return `H2_OVERFLOW` on larger totals;
 no wrapped report totals are exposed. This is an explicit compatibility limit
 relative to implementations with wider report accumulators. Mean uses floating
-point weighted midpoints. Percentile ranks follow `ceil(p * (double)total)`;
+point weighted midpoints with `long double` intermediates and a `double`
+result. Intermediate precision varies by platform, so means are approximate
+and do not promise bit-for-bit parity across platforms or ports. Percentile
+ranks follow `ceil(p * (double)total)`;
 large totals, especially above 2^53, incur floating-point rank rounding. p=0 and
 p=1 always select the first and last populated buckets exactly, and conversion
 of a rounded 2^64 rank is avoided. Percentiles must be finite and in [0,1].
