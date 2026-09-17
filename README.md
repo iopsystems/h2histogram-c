@@ -111,3 +111,8 @@ Tests cover shared Rust-checked geometry fixtures, transactional errors,
 independent snapshots, wrapping recording, endpoints and overflow. Linux tests
 also inject failures into each allocation site and prove reused queries and
 dense reuse operations perform zero allocations.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for style rules, the pinned formatter,
+and local validation commands.

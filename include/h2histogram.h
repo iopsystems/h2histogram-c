@@ -6,11 +6,24 @@
 extern "C" {
 #endif
 #define H2_VERSION "0.1.0-alpha.1"
-typedef enum { H2_OK, H2_INVALID, H2_RANGE, H2_NOMEM, H2_OVERFLOW, H2_MISMATCH, H2_EMPTY } h2_status;
+typedef enum {
+    H2_OK,
+    H2_INVALID,
+    H2_RANGE,
+    H2_NOMEM,
+    H2_OVERFLOW,
+    H2_MISMATCH,
+    H2_EMPTY
+} h2_status;
 typedef enum { H2_DENSE, H2_SPARSE, H2_CUMULATIVE } h2_phase;
-typedef struct { uint32_t grouping_power, max_value_power, buckets; uint64_t max; } h2_config;
+typedef struct {
+    uint32_t grouping_power, max_value_power, buckets;
+    uint64_t max;
+} h2_config;
 typedef struct h2_hist h2_hist;
-typedef struct { uint64_t count, start, end; } h2_bucket;
+typedef struct {
+    uint64_t count, start, end;
+} h2_bucket;
 /* Config values are validated on entry. Outputs stay unchanged on any error. */
 h2_status h2_config_init(h2_config *out, uint32_t gp, uint32_t mvp);
 h2_status h2_config_infer(h2_config *out, uint32_t buckets, uint32_t mvp);
@@ -21,8 +34,8 @@ h2_status h2_bounds(h2_config c, uint32_t index, uint64_t *start, uint64_t *end)
  * Imported arrays are copied. Sparse indices must strictly ascend, including
  * zero-count entries; cumulative counts start positive and are nondecreasing. */
 h2_status h2_create(h2_config c, h2_hist **out);
-h2_status h2_import(h2_config c, h2_phase phase, const uint32_t *indices,
-                    const uint64_t *counts, size_t length, h2_hist **out);
+h2_status h2_import(h2_config c, h2_phase phase, const uint32_t *indices, const uint64_t *counts,
+                    size_t length, h2_hist **out);
 void h2_free(h2_hist *h);
 h2_config h2_get_config(const h2_hist *h);
 h2_phase h2_get_phase(const h2_hist *h);
