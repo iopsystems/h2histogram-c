@@ -9,7 +9,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r requirements-format.txt
-      - run: clang-format --dry-run --Werror include/*.h src/*.c tests/*.c examples/*.c
+      - run: clang-format --dry-run --Werror include/*.h src/*.c tests/*.c examples/*.c verify/*.c
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -23,3 +23,14 @@ jobs:
       - run: cmake --build build --parallel
       - run: ctest --test-dir build --output-on-failure
       - run: ./build/h2_example
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install CBMC 6.6.0
+        run: |
+          curl -sSLo cbmc.deb https://github.com/diffblue/cbmc/releases/download/cbmc-6.6.0/ubuntu-24.04-cbmc-6.6.0-Linux.deb
+          sudo apt-get install -y ./cbmc.deb
+          cbmc --version
+      - run: verify/run.sh
