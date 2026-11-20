@@ -127,6 +127,21 @@ independent snapshots, wrapping recording, endpoints and overflow. Linux tests
 also inject failures into each allocation site and prove reused queries and
 dense reuse operations perform zero allocations.
 
+## Formal verification
+
+[`verify/`](verify/README.md) holds CBMC bounded-model-checking proofs that run
+against `src/h2histogram.c` unmodified. They establish, for all inputs within
+each stated bound rather than for sampled cases: bucket geometry over the whole
+configuration space (index in range, bucket contains its value, buckets tile
+without gaps), percentile rank bounds over every finite fraction and total,
+transactional checked addition, import validation, exact and transactional
+sparse/cumulative merge and downsample, and compaction that preserves contents
+and rolls back on allocation failure. Every run also checks array bounds,
+pointer validity, unsigned overflow and conversions on the executed paths.
+Run `verify/run.sh` or `cmake --build build --target verify` with CBMC 6.x.
+These are bounded proofs on small geometries, not a proof of the library for
+arbitrary sizes; the bounds and what is left out are listed in that README.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for style rules, the pinned formatter,

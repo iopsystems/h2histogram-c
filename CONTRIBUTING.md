@@ -31,13 +31,17 @@ manually. Do not import LLVM's C++-specific naming or language rules into this C
 ```sh
 python3 -m venv .venv-format
 .venv-format/bin/pip install -r requirements-format.txt
-.venv-format/bin/clang-format -i include/*.h src/*.c tests/*.c examples/*.c
-.venv-format/bin/clang-format --dry-run --Werror include/*.h src/*.c tests/*.c examples/*.c
+.venv-format/bin/clang-format -i include/*.h src/*.c tests/*.c examples/*.c verify/*.c
+.venv-format/bin/clang-format --dry-run --Werror include/*.h src/*.c tests/*.c examples/*.c verify/*.c
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
 ctest --test-dir build --output-on-failure
+verify/run.sh            # CBMC 6.x proofs; sequential, about 6 GB peak
 ```
 
 CI installs the same pinned formatter and rejects formatting drift. Its compiler
-matrix also checks Debug/Release and sanitizer builds. Keep formatter version
+matrix also checks Debug/Release and sanitizer builds, and a separate job runs
+the CBMC proofs in [`verify/`](verify/README.md). A change to arithmetic,
+validation, merge, downsample or compaction should keep those proofs passing or
+update the harness that states the contract. Keep formatter version
 changes explicit and update the dependency pin and this guide together.
